@@ -43,7 +43,7 @@ endif
 
 # we get the symbols from modules using KBUILD_EXTRA_SYMBOLS to prevent warnings about unknown functions
 all:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) EXTRA_CFLAGS="-I$(M) -I$(M)/../common/include -I$(M)/../../../../tests/include $(SCONS_CFLAGS)" $(SCONS_CONFIGS) KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(KBUILD_OPTIONS) modules
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 EXTRA_CFLAGS="-I$(M) -I$(M)/../common/include -I$(M)/../../../../tests/include $(SCONS_CFLAGS)" $(SCONS_CONFIGS) KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(KBUILD_OPTIONS) modules
 
 modules_install:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules_install
