@@ -113,8 +113,6 @@ ccflags-y +=-DMALI_KBASE_PLATFORM_PATH=$(src)/platform/$(CONFIG_MALI_PLATFORM_NA
 endif
 
 ccflags-y += \
-    -I$(srctree)/include/linux \
-    -I$(srctree)/drivers/staging/android \
     -I$(src) \
     -I$(src)/platform/$(MALI_PLATFORM_DIR) \
     -I$(src)/../../../base \
