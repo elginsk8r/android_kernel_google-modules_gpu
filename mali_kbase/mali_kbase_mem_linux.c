@@ -1827,11 +1827,7 @@ static int kbase_cpu_mmap(struct kbase_context *kctx,
 	 * See MIDBASE-1057
 	 */
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0))
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_IO;
-#else
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_RESERVED | VM_IO;
-#endif
+	vm_flags_set(vma, VM_DONTCOPY | VM_DONTDUMP | VM_DONTEXPAND | VM_IO);
 	vma->vm_ops = &kbase_vm_ops;
 	vma->vm_private_data = map;
 
@@ -1883,7 +1879,7 @@ static int kbase_cpu_mmap(struct kbase_context *kctx,
 	if (!kaddr) {
 		unsigned long addr = vma->vm_start + aligned_offset;
 
-		vma->vm_flags |= VM_PFNMAP;
+		vm_flags_set(vma, VM_PFNMAP);
 		for (i = 0; i < nr_pages; i++) {
 			phys_addr_t phys;
 
@@ -1898,7 +1894,7 @@ static int kbase_cpu_mmap(struct kbase_context *kctx,
 	} else {
 		WARN_ON(aligned_offset);
 		/* MIXEDMAP so we can vfree the kaddr early and not track it after map time */
-		vma->vm_flags |= VM_MIXEDMAP;
+		vm_flags_set(vma, VM_MIXEDMAP);
 		/* vmalloc remaping is easy... */
 		err = remap_vmalloc_range(vma, kaddr, 0);
 		WARN_ON(err);
@@ -2079,9 +2075,9 @@ int kbase_mmap(struct file *file, struct vm_area_struct *vma)
 	dev_dbg(dev, "kbase_mmap\n");
 
 	if (!(vma->vm_flags & VM_READ))
-		vma->vm_flags &= ~VM_MAYREAD;
+		vm_flags_clear(vma, VM_MAYREAD);
 	if (!(vma->vm_flags & VM_WRITE))
-		vma->vm_flags &= ~VM_MAYWRITE;
+		vm_flags_clear(vma, VM_MAYWRITE);
 
 	if (0 == nr_pages) {
 		err = -EINVAL;
@@ -2479,12 +2475,8 @@ static int kbase_tracking_page_setup(struct kbase_context *kctx, struct vm_area_
 	spin_unlock(&kctx->mm_update_lock);
 
 	/* no real access */
-	vma->vm_flags &= ~(VM_READ | VM_MAYREAD | VM_WRITE | VM_MAYWRITE | VM_EXEC | VM_MAYEXEC);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0))
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP | VM_IO;
-#else
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_RESERVED | VM_IO;
-#endif
+	vm_flags_clear(vma, VM_READ | VM_MAYREAD | VM_WRITE | VM_MAYWRITE | VM_EXEC | VM_MAYEXEC);
+	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP | VM_IO);
 	vma->vm_ops = &kbase_vm_special_ops;
 	vma->vm_private_data = kctx;
 
