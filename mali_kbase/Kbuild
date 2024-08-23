@@ -19,55 +19,116 @@
 #
 #
 
+# make $(src) as absolute path if it is not already, by prefixing $(srctree)
+# This is to prevent any build issue due to wrong path.
+src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
+
+#
+# Prevent misuse when Kernel configurations are not present by default
+# in out-of-tree builds
+#
+
+ifneq ($(CONFIG_ANDROID),n)
+ifeq ($(CONFIG_GPU_TRACEPOINTS),n)
+    $(error CONFIG_GPU_TRACEPOINTS must be set in Kernel configuration)
+endif
+endif
+
+ifeq ($(CONFIG_DMA_SHARED_BUFFER),n)
+    $(error CONFIG_DMA_SHARED_BUFFER must be set in Kernel configuration)
+endif
+
+ifeq ($(CONFIG_PM_DEVFREQ),n)
+    $(error CONFIG_PM_DEVFREQ must be set in Kernel configuration)
+endif
+
+ifeq ($(CONFIG_DEVFREQ_THERMAL),n)
+    $(error CONFIG_DEVFREQ_THERMAL must be set in Kernel configuration)
+endif
+
+ifeq ($(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND),n)
+    $(error CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND must be set in Kernel configuration)
+endif
+
+ifeq ($(CONFIG_FW_LOADER), n)
+    $(error CONFIG_FW_LOADER must be set in Kernel configuration)
+endif
+
+ifeq ($(CONFIG_MALI_PRFCNT_SET_SELECT_VIA_DEBUG_FS), y)
+    ifneq ($(CONFIG_DEBUG_FS), y)
+        $(error CONFIG_MALI_PRFCNT_SET_SELECT_VIA_DEBUG_FS depends on CONFIG_DEBUG_FS to be set in Kernel configuration)
+    endif
+endif
+
+ifeq ($(CONFIG_MALI_FENCE_DEBUG), y)
+    ifneq ($(CONFIG_SYNC_FILE), y)
+        $(error CONFIG_MALI_FENCE_DEBUG depends on CONFIG_SYNC_FILE to be set in Kernel configuration)
+    endif
+endif
+
+# We are building for Pixel
+CONFIG_MALI_PLATFORM_NAME="meson"
 
 # Driver version string which is returned to userspace via an ioctl
 MALI_RELEASE_NAME ?= "r16p0-01rel0"
-
-# Paths required for build
-
-# make $(src) as absolute path if it isn't already, by prefixing $(srctree)
-src:=$(if $(patsubst /%,,$(src)),$(srctree)/$(src),$(src))
-KBASE_PATH = $(src)
-KBASE_PLATFORM_PATH = $(KBASE_PATH)/platform_dummy
-UMP_PATH = $(src)/../../../base
-
 # Set up defaults if not defined by build system
-MALI_CUSTOMER_RELEASE ?= 1
+ifeq ($(CONFIG_MALI_DEBUG), y)
+    MALI_UNIT_TEST = 1
+    MALI_CUSTOMER_RELEASE ?= 0
+else
+    MALI_UNIT_TEST ?= 0
+    MALI_CUSTOMER_RELEASE ?= 1
+endif
 MALI_USE_CSF ?= 0
-MALI_UNIT_TEST ?= 0
-MALI_KERNEL_TEST_API ?= 0
 MALI_COVERAGE ?= 0
-CONFIG_MALI_PLATFORM_NAME ?= "devicetree"
 
-# Set up our defines, which will be passed to gcc
-DEFINES = \
+# Kconfig passes in the name with quotes for in-tree builds - remove them.
+MALI_PLATFORM_DIR := $(shell echo $(CONFIG_MALI_PLATFORM_NAME))
+
+ifneq ($(CONFIG_MALI_KUTF), n)
+    MALI_KERNEL_TEST_API ?= 1
+else
+    MALI_KERNEL_TEST_API ?= 0
+endif
+
+#
+# ccflags
+#
+ccflags-y = \
 	-DMALI_CUSTOMER_RELEASE=$(MALI_CUSTOMER_RELEASE) \
 	-DMALI_USE_CSF=$(MALI_USE_CSF) \
 	-DMALI_KERNEL_TEST_API=$(MALI_KERNEL_TEST_API) \
 	-DMALI_UNIT_TEST=$(MALI_UNIT_TEST) \
 	-DMALI_COVERAGE=$(MALI_COVERAGE) \
-	-DMALI_RELEASE_NAME=\"$(MALI_RELEASE_NAME)\"
+	-DMALI_RELEASE_NAME=\"$(MALI_RELEASE_NAME)\" \
+	-DMALI_KBASE_BUILD \
+	-DMALI_PLATFORM_DIR=$(MALI_PLATFORM_DIR)
 
 ifeq ($(KBUILD_EXTMOD),)
 # in-tree
-DEFINES +=-DMALI_KBASE_PLATFORM_PATH=../../$(src)/platform/$(CONFIG_MALI_PLATFORM_NAME)
+ccflags-y +=-DMALI_KBASE_PLATFORM_PATH=../../$(src)/platform/$(CONFIG_MALI_PLATFORM_NAME)
 else
 # out-of-tree
-DEFINES +=-DMALI_KBASE_PLATFORM_PATH=$(src)/platform/$(CONFIG_MALI_PLATFORM_NAME)
+ccflags-y +=-DMALI_KBASE_PLATFORM_PATH=$(src)/platform/$(CONFIG_MALI_PLATFORM_NAME)
 endif
 
-DEFINES += -I$(srctree)/drivers/staging/android
+ccflags-y += \
+    -I$(srctree)/include/linux \
+    -I$(srctree)/drivers/staging/android \
+    -I$(src) \
+    -I$(src)/platform/$(MALI_PLATFORM_DIR) \
+    -I$(src)/../../../base \
+    -I$(src)/../../../../include
 
-DEFINES += -DMALI_KBASE_BUILD
+subdir-ccflags-y += $(ccflags-y)
 
-# Use our defines when compiling
-ccflags-y += $(DEFINES) -I$(KBASE_PATH)   -I$(KBASE_PLATFORM_PATH) -I$(UMP_PATH) -I$(srctree)/include/linux
-subdir-ccflags-y += $(DEFINES) -I$(KBASE_PATH)   -I$(KBASE_PLATFORM_PATH) -I$(UMP_PATH) -I$(srctree)/include/linux
+#
+# Kernel Modules
+#
+obj-$(CONFIG_MALI_MIDGARD) += mali_kbase.o
+obj-$(CONFIG_MALI_KUTF) += tests/
 
-# Add include path for related GPU modules
-ccflags-y += -I$(src)/../common/include
-
-SRC := \
+mali_kbase-y := \
 	mali_kbase_device.c \
 	mali_kbase_cache_policy.c \
 	mali_kbase_mem.c \
@@ -114,62 +175,53 @@ SRC := \
 	mali_kbase_regs_history_debugfs.c \
 	thirdparty/mali_kbase_mmap.c
 
-
-ifeq ($(CONFIG_MALI_CINSTR_GWT),y)
-	SRC += mali_kbase_gwt.c
-endif
-
-ifeq ($(MALI_UNIT_TEST),1)
-	SRC += mali_kbase_tlstream_test.c
-endif
-
-ifeq ($(MALI_CUSTOMER_RELEASE),0)
-	SRC += mali_kbase_regs_dump_debugfs.c
-endif
-
-
-ccflags-y += -I$(KBASE_PATH)
-
-# Tell the Linux build system from which .o file to create the kernel module
-obj-$(CONFIG_MALI_MIDGARD) += mali_kbase.o
-
-# Tell the Linux build system to enable building of our .c files
-mali_kbase-y := $(SRC:.c=.o)
-
-# Kconfig passes in the name with quotes for in-tree builds - remove them.
-platform_name := $(shell echo $(CONFIG_MALI_PLATFORM_NAME))
-MALI_PLATFORM_DIR := platform/$(platform_name)
-ccflags-y += -I$(src)/$(MALI_PLATFORM_DIR)
-include $(src)/$(MALI_PLATFORM_DIR)/Kbuild
-
-ifeq ($(CONFIG_MALI_DEVFREQ),y)
-  ifeq ($(CONFIG_DEVFREQ_THERMAL),y)
-    include $(src)/ipa/Kbuild
-  endif
-endif
-
-ifeq ($(MALI_USE_CSF),1)
-	include $(src)/csf/Kbuild
-endif
+mali_kbase-$(CONFIG_MALI_CINSTR_GWT) += mali_kbase_gwt.c
 
 mali_kbase-$(CONFIG_MALI_DMA_FENCE) += \
 	mali_kbase_dma_fence.o \
 	mali_kbase_fence.o
+
 mali_kbase-$(CONFIG_SYNC) += \
 	mali_kbase_sync_android.o \
 	mali_kbase_sync_common.o
+
 mali_kbase-$(CONFIG_SYNC_FILE) += \
 	mali_kbase_sync_file.o \
 	mali_kbase_sync_common.o \
 	mali_kbase_fence.o
 
-include  $(src)/backend/gpu/Kbuild
-mali_kbase-y += $(BACKEND:.c=.o)
+ifeq ($(MALI_UNIT_TEST),1)
+	mali_kbase-y += mali_kbase_tlstream_test.c
+endif
 
+ifeq ($(MALI_CUSTOMER_RELEASE),0)
+	mali_kbase-y += mali_kbase_regs_dump_debugfs.c
+endif
 
-ccflags-y += -I$(src)/backend/gpu
-ccflags-y += $(call cc-disable-warning, implicit-fallthrough)
-subdir-ccflags-y += -I$(src)/backend/gpu
+ccflags-y += -I$(KBASE_PATH)
 
-# For kutf and mali_kutf_irq_latency_test
-obj-$(CONFIG_MALI_KUTF) += tests/
+# Tell the Linux build system to enable building of our .c files
+mali_kbase-y := $(SRC:.c=.o)
+
+INCLUDE_SUBDIR = \
+    $(src)/backend/gpu/Kbuild \
+    $(src)/platform/$(MALI_PLATFORM_DIR)/Kbuild
+
+ifeq ($(CONFIG_MALI_CSF_SUPPORT),y)
+    INCLUDE_SUBDIR += $(src)/csf/Kbuild
+endif
+
+ifeq ($(CONFIG_MALI_DEVFREQ),y)
+    ifeq ($(CONFIG_DEVFREQ_THERMAL),y)
+        INCLUDE_SUBDIR += $(src)/ipa/Kbuild
+    endif
+endif
+
+ifeq ($(KBUILD_EXTMOD),)
+# in-tree
+    -include $(INCLUDE_SUBDIR)
+else
+# empty
+# out-of-tree
+    include $(INCLUDE_SUBDIR)
+endif
